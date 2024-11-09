@@ -1,12 +1,12 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.Net.Sockets;
-using System.Net.Security;
-using System.IO;
 using ImapHelper.Entity;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Net.Security;
+using System.Net.Sockets;
+using System.Text;
+using System.Text.RegularExpressions;
 
 namespace ImapHelper
 {
@@ -58,11 +58,11 @@ namespace ImapHelper
                 string strTemp = string.Empty;
                 while ((strTemp = reader.ReadLine()) != null)
                 {
-                    if (strTemp.IndexOf("OK LOGIN completed") != -1)
+                    if (strTemp.IndexOf("OK LOGIN completed", StringComparison.OrdinalIgnoreCase) != -1)
                     {
                         break;
                     }
-                    else if (strTemp.IndexOf("NO LOGIN failed") != -1)
+                    else if (strTemp.IndexOf("NO LOGIN failed", StringComparison.OrdinalIgnoreCase) != -1)
                     {
                         throw new Exception("NO LOGIN failed");
                     }
@@ -88,7 +88,7 @@ namespace ImapHelper
                 string strTemp = string.Empty;
                 while ((strTemp = reader.ReadLine()) != null)
                 {
-                    if (strTemp.IndexOf("OK LIST completed") != -1)
+                    if (strTemp.IndexOf("OK LIST completed", StringComparison.OrdinalIgnoreCase) != -1)
                     {
                         break;
                     }
@@ -115,11 +115,11 @@ namespace ImapHelper
                 string strTemp = string.Empty;
                 while ((strTemp = reader.ReadLine()) != null)
                 {
-                    if (strTemp.IndexOf("NO SELECT failed") != -1)
+                    if (strTemp.IndexOf("NO SELECT failed", StringComparison.OrdinalIgnoreCase) != -1)
                     {
                         return false;
                     }
-                    if (strTemp.IndexOf("SELECT completed") != -1)
+                    if (strTemp.IndexOf("SELECT completed", StringComparison.OrdinalIgnoreCase) != -1)
                     {
                         return true;
                     }
@@ -147,9 +147,10 @@ namespace ImapHelper
                 string strTemp = string.Empty;
                 while ((strTemp = reader.ReadLine()) != null)
                 {
-                    if (strTemp.IndexOf("SEARCH") != -1)
+                    if (strTemp.IndexOf("SEARCH", StringComparison.OrdinalIgnoreCase) != -1)
                     {
-                        str = strTemp.Replace("SEARCH", "").Replace("*", "").Trim();
+                        str = Regex.Replace(strTemp, "SEARCH", "", RegexOptions.IgnoreCase)
+                            .Replace("*", "").Trim();
                     }
                     break;
                 }
@@ -159,7 +160,7 @@ namespace ImapHelper
                 ;
             }
             if (string.IsNullOrEmpty(str)) return null;
-            string[] arr = System.Text.RegularExpressions.Regex.Split(str, @"\s+");
+            string[] arr = Regex.Split(str, @"\s+");
             if (isReverse)
             {
                 arr = arr.Reverse().ToArray();
@@ -188,7 +189,7 @@ namespace ImapHelper
         {
             var strBody = fetch(ID, "body[1]");
             List<string> list = new List<string>(strBody.Split(new string[] { "\r" }, StringSplitOptions.RemoveEmptyEntries));
-            var contentTypeList = list.Where(d => d.StartsWith("Content-Type:")).ToList();
+            var contentTypeList = list.Where(d => d.StartsWith("Content-Type:", StringComparison.OrdinalIgnoreCase)).ToList();
             if (contentTypeList.Count() <= 1)
             {
                 var body = BodyParse(strBody);
@@ -264,7 +265,7 @@ namespace ImapHelper
             string str = string.Empty;
             try
             {
-                System.Text.RegularExpressions.Regex reg1 = new System.Text.RegularExpressions.Regex(@"body\[[1-9][0-9]{0,1}\]");
+                Regex reg1 = new Regex(@"body\[[1-9][0-9]{0,1}\]");
                 bool ismatch = reg1.IsMatch(data);
                 if (ismatch && data != "body[1]")
                 {
@@ -276,7 +277,7 @@ namespace ImapHelper
                     {
                         var strTemp = new string(read, 0, count);
                         str += strTemp;
-                        if (strTemp.IndexOf("OK FETCH completed") != -1)
+                        if (strTemp.IndexOf("OK FETCH completed", StringComparison.OrdinalIgnoreCase) != -1)
                             break;
                         count = reader.Read(read, 0, clen);
                     }
@@ -290,11 +291,11 @@ namespace ImapHelper
                     string strTemp = string.Empty;
                     while ((strTemp = reader.ReadLine()) != null)
                     {
-                        if (strTemp.IndexOf("OK SEARCH completed") != -1 || strTemp.ToLower().IndexOf(data) != -1)
+                        if (strTemp.IndexOf("OK SEARCH completed", StringComparison.OrdinalIgnoreCase) != -1 || strTemp.ToLower().IndexOf(data, StringComparison.OrdinalIgnoreCase) != -1)
                         {
                             continue;
                         }
-                        if (strTemp.IndexOf("OK FETCH completed") != -1 || strTemp.IndexOf("BAD invalid command or parameters") != -1)
+                        if (strTemp.IndexOf("OK FETCH completed", StringComparison.OrdinalIgnoreCase) != -1 || strTemp.IndexOf("BAD invalid command or parameters", StringComparison.OrdinalIgnoreCase) != -1)
                         {
                             break;
                         }
@@ -326,8 +327,7 @@ namespace ImapHelper
             List<string> list = new List<string>(strHeader.Split(new string[] { "\r" }, StringSplitOptions.RemoveEmptyEntries));
             Header hearer = new Header();
             //获取From
-            var from = list.FirstOrDefault(q => q.StartsWith("From:"));
-            from = from.Replace("From:", "").Trim();
+            var from = GetFieldValue(list, "From:");
             var fromName = from.Split(' ')[0].Trim();
             hearer.FromName = MineToStr(fromName);
             try
@@ -336,28 +336,34 @@ namespace ImapHelper
             }
             catch
             {
-                var index = list.FindIndex(q => q.StartsWith("From:"));
+                var index = list.FindIndex(q => q.StartsWith("From:", StringComparison.OrdinalIgnoreCase));
                 hearer.FromAddress = list[index+1].Replace("<", "").Replace(">", "").Trim();
             }
             //获取To
-            var to = list.FirstOrDefault(q => q.StartsWith("To:"));
-            hearer.To = to.Replace("To:", "").Trim();
+            var to = GetFieldValue(list, "To:");
+            hearer.To = to;
             //MessageID
-            var messageID = list.FirstOrDefault(q => q.StartsWith("Message-ID:"));
-            hearer.MessageID = messageID.Replace("Message-ID:", "").Replace("<", "").Replace(">", "").Trim();
+            var messageID = GetFieldValue(list, "Message-ID:");
+            hearer.MessageID = messageID.Replace("<", "").Replace(">", "").Trim();
             //Subject
-            var subject = list.FirstOrDefault(q => q.StartsWith("Subject:"));
-            subject = subject.Replace("Subject:", "").Trim();
+            var subject = GetFieldValue(list, "Subject:");
             hearer.Subject = MineToStr(subject);
-            var subjects = list.Where(q => q.StartsWith(" =?")).ToList();
+            var subjects = list.Where(q => q.StartsWith(" =?", StringComparison.OrdinalIgnoreCase)).ToList();
             foreach (var sub in subjects)
             {
                 hearer.Subject += MineToStr(sub);
             }
             //Date
-            var date = list.FirstOrDefault(q => q.StartsWith("Date:")).Replace("Date:", "").Trim();
+            var date = GetFieldValue(list, "Date:");
             hearer.Date = DateTime.Parse(date);
             return hearer;
+        }
+
+        private string GetFieldValue(List<string> list, string fieldname)
+        {
+            var fv = list.FirstOrDefault(q => q.StartsWith(fieldname, StringComparison.OrdinalIgnoreCase));
+            fv = Regex.Replace(fv, fieldname, "", RegexOptions.IgnoreCase).Trim();
+            return fv;
         }
 
         /// <summary>
@@ -370,23 +376,23 @@ namespace ImapHelper
             List<string> list = new List<string>(strBody.Split(new string[] { "\r" }, StringSplitOptions.RemoveEmptyEntries));
             Body body = new Body();
             //是否有附件
-            var hasPart = list.Any(d => d.StartsWith("------="));
+            var hasPart = list.Any(d => d.StartsWith("------=", StringComparison.OrdinalIgnoreCase));
             body.HasPart = hasPart;
             //类型 编码
-            var contentTypeList = list.Where(d => d.StartsWith("Content-Type:")).ToList();
+            var contentTypeList = list.Where(d => d.StartsWith("Content-Type:", StringComparison.OrdinalIgnoreCase)).ToList();
             if (contentTypeList.Count == 1)
             {
                 var contentType = contentTypeList.FirstOrDefault();
                 if (contentType != null)
                 {
-                    contentType = contentType.Replace("Content-Type:", "").Trim();
+                    contentType = Regex.Replace(contentType, "Content-Type:", "", RegexOptions.IgnoreCase).Trim();
                     body.ContentType = contentType.Split(';')[0];
                     body.Charset = contentType.Split(';')[1].Split('=')[1].Replace("\"", "").ToLower().Trim();
                 }
             }
             else
             {
-                var index = list.FindLastIndex(d => d.StartsWith("------="));
+                var index = list.FindLastIndex(d => d.StartsWith("------=", StringComparison.OrdinalIgnoreCase));
                 //多个取最后一个
                 foreach (var type in contentTypeList)
                 {
@@ -396,12 +402,12 @@ namespace ImapHelper
                 }
             }
             //内容主体
-            var contentList = list.Where(d => !d.StartsWith("------=")
-                                       && !d.StartsWith("Content-Type:")
-                                       && !d.StartsWith("Content-Transfer-Encoding:")
-                                       && !d.StartsWith(")")).ToList();
+            var contentList = list.Where(d => !d.StartsWith("------=", StringComparison.OrdinalIgnoreCase)
+                                       && !d.StartsWith("Content-Type:", StringComparison.OrdinalIgnoreCase)
+                                       && !d.StartsWith("Content-Transfer-Encoding:", StringComparison.OrdinalIgnoreCase)
+                                       && !d.StartsWith(")", StringComparison.OrdinalIgnoreCase)).ToList();
             var strContent = string.Join("\r", contentList.ToArray()).Replace("\r", "").Replace(")", "");
-            if (strContent.IndexOf("<html") != -1)
+            if (strContent.IndexOf("<html", StringComparison.OrdinalIgnoreCase) != -1)
             {
                 body.Content = strContent;
                 body.ContentType = "text/html";
@@ -425,7 +431,7 @@ namespace ImapHelper
         /// <returns></returns>
         private string MineToStr(string mine)
         {
-            if (mine.IndexOf("?") != -1)
+            if (mine.IndexOf("?", StringComparison.OrdinalIgnoreCase) != -1)
             {
                 var coding = mine.Split('?')[1];
                 var bs64 = mine.Split('?')[3];
@@ -509,12 +515,9 @@ namespace ImapHelper
         /// </summary>
         public void Dispose()
         {
-            if (reader != null)
-                reader.Close();
-            if (sw != null)
-                sw.Close();
-            if (sslstream != null)
-                sslstream.Close();
+            reader?.Close();
+            sw?.Close();
+            sslstream?.Close();
             tcpclient.Close();
         }
     }
